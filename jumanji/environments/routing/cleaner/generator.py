@@ -86,6 +86,7 @@ class RandomGenerator(Generator):
             action_mask=None,
             step_count=jnp.array(0, int),
             key=state_key,
+            num_tiles = jnp.sum(grid != WALL)
         )
 
     def _adapt_values(self, maze: chex.Array) -> chex.Array:

@@ -143,6 +143,7 @@ class Cleaner(Environment[State]):
             (self.num_agents, 4), bool, False, True, "action_mask"
         )
         step_count = specs.BoundedArray((), int, 0, self.time_limit, "step_count")
+        num_tiles = specs.BoundedArray((), int, 0, self.num_rows*self.num_cols, "step_count")
         return specs.Spec(
             Observation,
             "ObservationSpec",
@@ -150,6 +151,7 @@ class Cleaner(Environment[State]):
             agents_locations=agents_locations,
             action_mask=action_mask,
             step_count=step_count,
+            num_tiles=num_tiles,
         )
 
     def action_spec(self) -> specs.MultiDiscreteArray:
@@ -226,15 +228,17 @@ class Cleaner(Environment[State]):
             action_mask=self._compute_action_mask(grid, agents_locations),
             step_count=state.step_count + 1,
             key=state.key,
+            num_tiles = state.num_tiles
         )
 
         reward = self._compute_reward(prev_state, state)
 
         observation = self._observation_from_state(state)
 
-        done = self._should_terminate(state, is_action_valid)
-
         extras = self._compute_extras(state)
+
+        done = self._should_terminate(state, is_action_valid, extras["num_dirty_tiles"])
+
         # Return either a MID or a LAST timestep depending on done.
         timestep = jax.lax.cond(
             done,
@@ -365,7 +369,7 @@ class Cleaner(Environment[State]):
         """Clean all tiles containing an agent."""
         return grid.at[agents_locations[:, 0], agents_locations[:, 1]].set(CLEAN)
 
-    def _should_terminate(self, state: State, valid_actions: chex.Array) -> chex.Array:
+    def _should_terminate(self, state: State, valid_actions: chex.Array, num_dirty_tiles: int) -> chex.Array:
         """Whether the episode should terminate from a given state.
 
         Returns True if:
@@ -376,14 +380,14 @@ class Cleaner(Environment[State]):
         """
         return (
             ~valid_actions.all()
-            | ~(state.grid == DIRTY).any()
+            | num_dirty_tiles == 0
             | (state.step_count >= self.time_limit)
         )
 
     def _compute_extras(self, state: State) -> Dict[str, Any]:
         grid = state.grid
-        ratio_dirty_tiles = jnp.sum(grid == DIRTY) / jnp.sum(grid != WALL)
         num_dirty_tiles = jnp.sum(grid == DIRTY)
+        ratio_dirty_tiles = num_dirty_tiles / state.num_tiles
         return {
             "ratio_dirty_tiles": ratio_dirty_tiles,
             "num_dirty_tiles": num_dirty_tiles,
